@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogOut, User, TrendingUp, TrendingDown, X, ChevronLeft, ChevronRight, Filter, Sun, Moon } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -6,7 +6,38 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 const UserDashboard = () => {
   const navigate = useNavigate();
 
-  // --- MOCK DATA: GRAFIK SALDO ---
+  // --- 1. STATE USER (Diisi Default Dulu) ---
+  const [userProfile, setUserProfile] = useState({
+    name: "Loading...",
+    phone: "",
+    magicNumber: "...",
+    password: "", // Password tidak ditampilkan demi keamanan biasanya, tapi kita simpan di state
+    balance: 0 // Saldo default 0
+  });
+
+  // --- 2. EFEK: AMBIL DATA ASLI DARI LOGIN (INTEGRASI BACKEND) ---
+  useEffect(() => {
+    // Ambil data dari LocalStorage (yang disimpan saat Login tadi)
+    const dataString = localStorage.getItem("userData");
+    
+    if (dataString) {
+      const userData = JSON.parse(dataString);
+      
+      // Update State dengan Data Asli Database
+      setUserProfile({
+        name: userData.name,
+        phone: userData.phone || "0812xxxx", 
+        magicNumber: userData.magicNumber,
+        balance: userData.balance || 0,
+        password: "****************" // Password disensor
+      });
+    } else {
+      // Kalau tidak ada data login, tendang ke halaman depan
+      navigate("/");
+    }
+  }, [navigate]);
+
+  // --- MOCK DATA: GRAFIK SALDO (Visual Saja) ---
   const chartData = [
     { time: '08:00', balance: 1000 },
     { time: '10:00', balance: 1050 },
@@ -17,7 +48,7 @@ const UserDashboard = () => {
     { time: '20:00', balance: 1200 },
   ];
 
-  // --- MOCK DATA: HISTORY TRANSAKSI (25 Data) ---
+  // --- MOCK DATA: HISTORY TRANSAKSI (Visual Saja) ---
   const historyData = Array.from({ length: 25 }, (_, i) => ({
     id: i + 1,
     date: `2023-10-${25 - i}`,
@@ -26,16 +57,8 @@ const UserDashboard = () => {
     profit: (Math.random() * 200 - 50).toFixed(2)
   }));
 
-  // --- STATE THEME ---
-  const [theme, setTheme] = useState('light'); // default: light
-  
-  // --- STATE USER ---
-  const [userProfile, setUserProfile] = useState({
-    name: "Jefri Wahyudiana",
-    phone: "08123456789",
-    magicNumber: "88888",
-    password: "user123"
-  });
+  // --- STATE THEME & UI ---
+  const [theme, setTheme] = useState('light');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isEditProfile, setIsEditProfile] = useState(false);
 
@@ -45,9 +68,8 @@ const UserDashboard = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // --- LOGIKA SALDO ---
-  // Ganti ke angka negatif (misal -500) untuk mengetes warna merah!
-  const currentBalance = 1200.00; 
+  // --- LOGIKA SALDO (MENGGUNAKAN DATA ASLI) ---
+  const currentBalance = userProfile.balance; // <-- INI YANG BIKIN NYAMBUNG KE DATABASE
   const isNegative = currentBalance < 0;
 
   // LOGIKA PAGINATION
@@ -69,6 +91,7 @@ const UserDashboard = () => {
   const maxLoss = Math.min(...historyData.map(d => parseFloat(d.profit)));
 
   const handleLogout = () => {
+    localStorage.removeItem("userData"); // Hapus sesi login
     navigate("/");
   };
 
@@ -87,7 +110,7 @@ const UserDashboard = () => {
           }`}>Dashboard User</h1>
           <p className={`text-sm ${
             theme === 'light' ? 'text-gray-600' : 'text-slate-400'
-          }`}>Selamat datang, {userProfile.name}</p>
+          }`}>Selamat datang, <span className="font-bold text-blue-500">{userProfile.name}</span></p>
         </div>
         <div className="flex gap-3">
           <button 
@@ -127,26 +150,23 @@ const UserDashboard = () => {
         {/* --- KOLOM UTAMA --- */}
         <div className="lg:col-span-3 space-y-6">
           
-          {/* 1. Card Grafik Saldo (REVISI: ANGKA MASUK DALAM BADGE) */}
+          {/* 1. Card Grafik Saldo */}
           <div className={`rounded-xl p-6 shadow-xl relative ${
             theme === 'light' 
               ? 'bg-white border border-gray-200' 
               : 'bg-slate-900 border border-slate-800'
           }`}>
              <div className="flex justify-between items-center mb-6">
-                
-                {/* Judul di Kiri */}
                 <h3 className={`text-lg font-semibold ${
                   theme === 'light' ? 'text-gray-700' : 'text-slate-300'
                 }`}>Grafik Saldo</h3>
                 
-                {/* Saldo DI DALAM BADGE (Menggantikan Text 'Live') */}
+                {/* Saldo REAL DARI DATABASE */}
                 <div className={`flex items-center gap-3 px-5 py-2 rounded-full border transition-colors shadow-lg ${
                     isNegative 
                       ? 'bg-red-500/10 border-red-500/20 shadow-red-900/10' 
                       : 'bg-green-500/10 border-green-500/20 shadow-green-900/10'
                 }`}>
-                   {/* Titik Berkedip */}
                    <span className="relative flex h-3 w-3">
                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                            isNegative ? 'bg-red-400' : 'bg-green-400'
@@ -156,7 +176,6 @@ const UserDashboard = () => {
                        }`}></span>
                    </span>
 
-                   {/* Angka Saldo (Warna Mengikuti Status - BUKAN PUTIH) */}
                    <span className={`text-xl font-bold font-mono tracking-wide ${
                        isNegative ? 'text-red-400' : 'text-green-400'
                    }`}>
@@ -165,7 +184,6 @@ const UserDashboard = () => {
                 </div>
              </div>
              
-             {/* Area Chart */}
              <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData}>
@@ -195,7 +213,7 @@ const UserDashboard = () => {
             </div>
           </div>
 
-          {/* 2. Statistik & Filter Area (Tetap Sama) */}
+          {/* 2. Statistik & Filter (Tetap Sama) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className={`p-4 rounded-xl flex items-center gap-4 ${
               theme === 'light' 
@@ -208,7 +226,7 @@ const UserDashboard = () => {
               <div>
                 <p className={`text-xs ${
                   theme === 'light' ? 'text-gray-600' : 'text-slate-400'
-                }`}>Profit Terbesar (Hari Ini)</p>
+                }`}>Profit Terbesar</p>
                 <p className="text-xl font-bold text-green-400">+${maxProfit}</p>
               </div>
             </div>
@@ -224,12 +242,12 @@ const UserDashboard = () => {
               <div>
                 <p className={`text-xs ${
                   theme === 'light' ? 'text-gray-600' : 'text-slate-400'
-                }`}>Rugi Terbesar (Hari Ini)</p>
+                }`}>Rugi Terbesar</p>
                 <p className="text-xl font-bold text-red-400">${maxLoss}</p>
               </div>
             </div>
 
-            {/* FILTER HARI BUTTON */}
+            {/* FILTER BUTTON */}
             <div className="relative z-10">
                 <button 
                     onClick={() => setShowFilter(!showFilter)}
@@ -379,12 +397,10 @@ const UserDashboard = () => {
                  </button>
              </div>
           </div>
-
         </div>
-
       </div>
 
-      {/* --- MODAL PROFIL (Tetap Sama) --- */}
+      {/* --- MODAL PROFIL (Koneksi Data Asli) --- */}
       {showProfileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in px-4">
            <div className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ${
@@ -445,8 +461,8 @@ const UserDashboard = () => {
                   <input 
                     type="password" 
                     disabled={!isEditProfile}
-                    value={userProfile.password}
-                    onChange={(e) => setUserProfile({...userProfile, password: e.target.value})}
+                    value={userProfile.password} // Password disensor
+                    readOnly
                     className={`w-full border rounded-lg px-4 py-3 focus:outline-none ${
                       theme === 'light'
                         ? `bg-gray-50 ${isEditProfile ? 'border-blue-500' : 'border-gray-300'} text-gray-900`
@@ -493,7 +509,7 @@ const UserDashboard = () => {
                       <button 
                         onClick={() => {
                           setIsEditProfile(false);
-                          alert("Data profil berhasil disimpan!");
+                          alert("Fitur simpan ke database akan segera hadir!");
                         }}
                         className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors"
                       >

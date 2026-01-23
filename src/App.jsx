@@ -1,23 +1,24 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import Login from "./pages/Login";
-import AdminDashboard from "./pages/AdminDashboard";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import LoginPage from "./pages/LoginPage";
 import UserDashboard from "./pages/UserDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 
 function App() {
   return (
     <Router>
-      <div className="min-h-screen bg-slate-950 font-sans text-slate-100">
-        <Routes>
-          {/* Rute Awal: Login */}
-          <Route path="/" element={<Login />} />
-          
-          {/* Rute Admin */}
-          <Route path="/admin" element={<AdminDashboard />} />
-          
-          {/* Rute User */}
-          <Route path="/user" element={<UserDashboard />} />
-        </Routes>
-      </div>
+      <Routes>
+        {/* Pintu Utama */}
+        <Route path="/" element={<LoginPage />} />
+        
+        {/* Pintu Khusus User/Trader */}
+        <Route path="/dashboard" element={<UserDashboard />} />
+        
+        {/* Pintu Khusus Admin */}
+        <Route path="/admin" element={<AdminDashboard />} /> 
+
+        {/* Jika nyasar, balikkan ke Login */}
+        <Route path="*" element={<Navigate to="/" />} />
+      </Routes>
     </Router>
   );
 }
