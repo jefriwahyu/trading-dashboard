@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, Sun, Moon, Loader2 } from "lucide-react";
 // 1. Import Apollo Hook
@@ -22,10 +22,17 @@ const LoginPage = () => {
   const navigate = useNavigate();
   
   // State untuk UI dan Input
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || 'light';
+  });
   const [magicNumber, setMagicNumber] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+
+  // Sync tema ke localStorage
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   // 3. Hook Apollo untuk mengambil data user
   const [getUser, { loading }] = useLazyQuery(GET_USER, {
@@ -80,14 +87,13 @@ const LoginPage = () => {
       {/* Tombol Ganti Tema */}
       <button
         onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-        className={`fixed top-6 right-6 flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+        className={`fixed top-6 right-6 flex items-center gap-2 p-2 rounded-lg transition-all ${
           theme === 'light'
             ? 'bg-gray-200 hover:bg-gray-300 border border-gray-300 text-gray-700'
             : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white'
         }`}
       >
         {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-        <span className="hidden md:inline">{theme === 'light' ? 'Gelap' : 'Terang'}</span>
       </button>
 
       {/* Form Login */}

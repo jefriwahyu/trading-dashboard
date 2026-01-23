@@ -1,7 +1,20 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, User, TrendingUp, TrendingDown, X, ChevronLeft, ChevronRight, Filter, Sun, Moon } from "lucide-react";
+import { LogOut, User, TrendingUp, TrendingDown, X, ChevronLeft, ChevronRight, Filter, Sun, Moon, Eye, EyeOff } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useMutation, gql } from '@apollo/client';
+
+// GraphQL Mutation untuk Update User
+const UPDATE_USER = gql`
+  mutation UpdateUser($id: Int!, $name: String, $phone: String, $password: String) {
+    updateUser(id: $id, name: $name, phone: $phone, password: $password) {
+      id
+      name
+      phone
+      password
+    }
+  }
+`;
 
 const UserDashboard = () => {
   const navigate = useNavigate();
@@ -14,6 +27,8 @@ const UserDashboard = () => {
     password: "", // Password tidak ditampilkan demi keamanan biasanya, tapi kita simpan di state
     balance: 0 // Saldo default 0
   });
+  const [originalPassword, setOriginalPassword] = useState(""); // Simpan password asli
+  const [originalData, setOriginalData] = useState({ name: "", phone: "" }); // Simpan data asli untuk perbandingan
 
   // --- 2. EFEK: AMBIL DATA ASLI DARI LOGIN (INTEGRASI BACKEND) ---
   useEffect(() => {
@@ -22,6 +37,15 @@ const UserDashboard = () => {
     
     if (dataString) {
       const userData = JSON.parse(dataString);
+      
+      // Simpan password asli
+      setOriginalPassword(userData.password || "");
+      
+      // Simpan data asli
+      setOriginalData({
+        name: userData.name,
+        phone: userData.phone || ""
+      });
       
       // Update State dengan Data Asli Database
       setUserProfile({
@@ -58,13 +82,75 @@ const UserDashboard = () => {
   }));
 
   // --- STATE THEME & UI ---
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('theme') || 'light';
+  });
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isEditProfile, setIsEditProfile] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+
+  // Fungsi untuk menampilkan notifikasi
+  const showNotification = (message, type = 'info') => {
+    const id = Date.now();
+    setNotifications(prev => [...prev, { id, message, type }]);
+    
+    // Auto remove setelah 5 detik
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(notif => notif.id !== id));
+    }, 5000);
+  };
+
+  // GraphQL Mutation Hook
+  const [updateUser] = useMutation(UPDATE_USER, {
+    onCompleted: (data) => {
+      // Update localStorage dengan data baru
+      const userData = JSON.parse(localStorage.getItem("userData") || "{}");
+      const updatedData = {
+        ...userData,
+        name: data.updateUser.name,
+        phone: data.updateUser.phone,
+        password: data.updateUser.password
+      };
+      localStorage.setItem("userData", JSON.stringify(updatedData));
+      
+      // Update password asli
+      setOriginalPassword(data.updateUser.password);
+      
+      // Update originalData untuk perbandingan selanjutnya
+      setOriginalData({
+        name: data.updateUser.name,
+        phone: data.updateUser.phone
+      });
+      
+      // Update state lokal
+      setUserProfile({
+        ...userProfile,
+        name: data.updateUser.name,
+        phone: data.updateUser.phone,
+        password: "****************"
+      });
+      
+      setIsEditProfile(false);
+      setShowPassword(false);
+      showNotification("Profil berhasil diperbarui!", "success");
+    },
+    onError: (err) => {
+      showNotification("Gagal memperbarui profil: " + err.message, "error");
+    }
+  });
+
+  // Sync tema ke localStorage
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   // --- STATE FILTER & PAGINATION ---
   const [showFilter, setShowFilter] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(null);
+  const [filterMode, setFilterMode] = useState('day'); // 'day', 'month', 'year'
+  const [filterDay, setFilterDay] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+  const [filterYear, setFilterYear] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
@@ -72,11 +158,42 @@ const UserDashboard = () => {
   const currentBalance = userProfile.balance; // <-- INI YANG BIKIN NYAMBUNG KE DATABASE
   const isNegative = currentBalance < 0;
 
-  // LOGIKA PAGINATION
+  // LOGIKA FILTER DATA
+  const filteredHistory = historyData.filter(item => {
+    // Jika tidak ada filter aktif, tampilkan semua
+    if (!filterDay && !filterMonth && !filterYear) return true;
+    
+    const itemDate = new Date(item.date);
+    const itemDay = itemDate.getDate();
+    const itemMonth = itemDate.getMonth() + 1; // 0-indexed
+    const itemYear = itemDate.getFullYear();
+    
+    if (filterMode === 'day') {
+      // Filter berdasarkan tanggal lengkap
+      return (
+        (!filterDay || itemDay === parseInt(filterDay)) &&
+        (!filterMonth || itemMonth === parseInt(filterMonth)) &&
+        (!filterYear || itemYear === parseInt(filterYear))
+      );
+    } else if (filterMode === 'month') {
+      // Filter berdasarkan bulan dan tahun
+      return (
+        (!filterMonth || itemMonth === parseInt(filterMonth)) &&
+        (!filterYear || itemYear === parseInt(filterYear))
+      );
+    } else if (filterMode === 'year') {
+      // Filter berdasarkan tahun saja
+      return !filterYear || itemYear === parseInt(filterYear);
+    }
+    
+    return true;
+  });
+
+  // LOGIKA PAGINATION (menggunakan filtered data)
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = historyData.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(historyData.length / itemsPerPage);
+  const currentItems = filteredHistory.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
 
   const nextPage = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
@@ -85,14 +202,136 @@ const UserDashboard = () => {
   const prevPage = () => {
     if (currentPage > 1) setCurrentPage(currentPage - 1);
   };
+  
+  // Reset halaman ke 1 saat filter berubah
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterDay, filterMonth, filterYear, filterMode]);
 
-  // LOGIKA STATISTIK
-  const maxProfit = Math.max(...historyData.map(d => parseFloat(d.profit)));
-  const maxLoss = Math.min(...historyData.map(d => parseFloat(d.profit)));
+  // LOGIKA STATISTIK (menggunakan filtered data)
+  const maxProfit = filteredHistory.length > 0 
+    ? Math.max(...filteredHistory.map(d => parseFloat(d.profit)))
+    : 0;
+  const maxLoss = filteredHistory.length > 0
+    ? Math.min(...filteredHistory.map(d => parseFloat(d.profit)))
+    : 0;
 
   const handleLogout = () => {
     localStorage.removeItem("userData"); // Hapus sesi login
     navigate("/");
+  };
+
+  // Fungsi Validasi
+  const validateName = (name) => {
+    if (!name || name.trim() === "") {
+      return "Nama tidak boleh kosong!";
+    }
+    if (name.length > 30) {
+      return "Nama maksimal 30 karakter!";
+    }
+    if (!/^[a-zA-Z\s]+$/.test(name)) {
+      return "Nama hanya boleh berisi huruf!";
+    }
+    return null;
+  };
+
+  const validatePhone = (phone) => {
+    if (phone && phone.trim() !== "") {
+      if (!/^[0-9]+$/.test(phone)) {
+        return "Nomor HP hanya boleh berisi angka!";
+      }
+      if (phone.length > 12) {
+        return "Nomor HP maksimal 12 digit!";
+      }
+    }
+    return null;
+  };
+
+  const validatePassword = (password, isNew = false) => {
+    // Jika password masih sensor dan tidak diubah, skip validasi
+    if (password === "****************" && !isNew) {
+      return null;
+    }
+    
+    if (password.length < 6) {
+      return "Password minimal 6 karakter!";
+    }
+    if (password.length > 10) {
+      return "Password maksimal 10 karakter!";
+    }
+    if (!/[a-zA-Z]/.test(password)) {
+      return "Password harus mengandung huruf!";
+    }
+    if (!/[0-9]/.test(password)) {
+      return "Password harus mengandung angka!";
+    }
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+      return "Password harus mengandung karakter khusus (!@#$%^&* dll)!";
+    }
+    return null;
+  };
+
+  const handleSaveProfile = async () => {
+    // Cek apakah ada perubahan
+    const isPasswordChanged = userProfile.password !== "****************";
+    const isNameChanged = userProfile.name !== originalData.name;
+    const isPhoneChanged = userProfile.phone !== originalData.phone;
+    
+    // Jika tidak ada perubahan sama sekali
+    if (!isNameChanged && !isPhoneChanged && !isPasswordChanged) {
+      showNotification("Tidak ada perubahan yang disimpan.", "info");
+      setIsEditProfile(false);
+      return;
+    }
+
+    // Validasi Nama
+    const nameError = validateName(userProfile.name);
+    if (nameError) {
+      showNotification(nameError, "error");
+      return;
+    }
+
+    // Validasi Phone
+    const phoneError = validatePhone(userProfile.phone);
+    if (phoneError) {
+      showNotification(phoneError, "error");
+      return;
+    }
+
+    // Validasi Password (hanya jika diubah)
+    if (isPasswordChanged) {
+      const passwordError = validatePassword(userProfile.password, true);
+      if (passwordError) {
+        showNotification(passwordError, "error");
+        return;
+      }
+    }
+
+    // Ambil user ID dari localStorage
+    const userData = JSON.parse(localStorage.getItem("userData") || "{}");
+    const userId = userData.id;
+
+    if (!userId) {
+      showNotification("Gagal mendapatkan data user. Silakan login ulang.", "error");
+      return;
+    }
+
+    // Tentukan password yang akan disimpan
+    // Jika password masih **************** artinya tidak diubah, gunakan password asli
+    const passwordToSave = userProfile.password === "****************" ? originalPassword : userProfile.password;
+
+    try {
+      await updateUser({
+        variables: {
+          id: parseInt(userId),
+          name: userProfile.name,
+          phone: userProfile.phone,
+          password: passwordToSave
+        }
+      });
+    } catch (err) {
+      console.error("Error updating profile:", err);
+    }
   };
 
   return (
@@ -115,17 +354,16 @@ const UserDashboard = () => {
         <div className="flex gap-3">
           <button 
             onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
+            className={`flex items-center gap-2 p-2 rounded-lg transition-all ${
               theme === 'light' 
                 ? 'bg-gray-200 hover:bg-gray-300 border border-gray-300 text-gray-700' 
                 : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white'
             }`}
           >
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-            <span className="hidden md:inline">{theme === 'light' ? 'Gelap' : 'Terang'}</span>
           </button>
           <button 
-            onClick={() => setShowProfileModal(true)}
+            onClick={() => {setShowProfileModal(true); setShowPassword(false); setIsEditProfile(false);}}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all ${
               theme === 'light' 
                 ? 'bg-gray-200 hover:bg-gray-300 border border-gray-300 text-gray-700' 
@@ -248,53 +486,28 @@ const UserDashboard = () => {
             </div>
 
             {/* FILTER BUTTON */}
-            <div className="relative z-10">
-                <button 
-                    onClick={() => setShowFilter(!showFilter)}
-                    className={`w-full h-full rounded-xl flex flex-col items-center justify-center gap-2 p-4 transition-all active:scale-95 ${
-                      theme === 'light' 
-                        ? 'bg-gray-200 hover:bg-gray-300 border border-gray-300 text-gray-900' 
-                        : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white'
-                    }`}
-                >
-                    <Filter size={20} className="text-blue-400"/>
-                    <span className="font-semibold">Filter Hari</span>
-                    {selectedDate && <span className="text-xs text-blue-400">Terpilih: {selectedDate}</span>}
-                </button>
-
-                {showFilter && (
-                    <div className={`absolute top-full mt-2 right-0 left-0 rounded-xl p-4 shadow-2xl ${
-                      theme === 'light' 
-                        ? 'bg-white border border-gray-200' 
-                        : 'bg-slate-900 border border-slate-700'
-                    }`}>
-                        <div className={`text-xs mb-2 text-center ${
-                          theme === 'light' ? 'text-gray-600' : 'text-slate-400'
-                        }`}>Pilih Tanggal</div>
-                        <div className="grid grid-cols-5 gap-2">
-                            {[...Array(15)].map((_, i) => (
-                                <button 
-                                key={i} 
-                                onClick={() => {
-                                    setSelectedDate(i + 1);
-                                    setShowFilter(false);
-                                }}
-                                className={`aspect-square rounded-full flex items-center justify-center text-sm font-medium transition-all
-                                    ${selectedDate === i + 1 
-                                      ? 'bg-blue-600 text-white' 
-                                      : theme === 'light'
-                                        ? 'bg-gray-200 text-gray-700 hover:bg-gray-300 hover:text-gray-900'
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
-                                    }
-                                `}
-                                >
-                                {i + 1}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+            <button 
+                onClick={() => setShowFilter(true)}
+                className={`w-full h-full rounded-xl flex flex-col items-center justify-center gap-2 p-4 transition-all active:scale-95 ${
+                  theme === 'light' 
+                    ? 'bg-gray-200 hover:bg-gray-300 border border-gray-300 text-gray-900' 
+                    : 'bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white'
+                }`}
+            >
+                <Filter size={20} className="text-blue-400"/>
+                <span className="font-semibold">Filter Waktu</span>
+                {(filterDay || filterMonth || filterYear) && (
+                  <span className="text-xs text-blue-400 font-mono">
+                    {filterMode === 'day' && filterDay && filterMonth && filterYear && (
+                      `${filterDay} ${['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'][parseInt(filterMonth) - 1]} ${filterYear}`
+                    )}
+                    {filterMode === 'month' && filterMonth && filterYear && (
+                      `${['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][parseInt(filterMonth) - 1]} ${filterYear}`
+                    )}
+                    {filterMode === 'year' && filterYear && `Tahun ${filterYear}`}
+                  </span>
                 )}
-            </div>
+            </button>
           </div>
 
           {/* 3. Tabel History (Tetap Sama) */}
@@ -313,7 +526,12 @@ const UserDashboard = () => {
                 }`}>Riwayat Transaksi</h3>
                 <span className={`text-xs ${
                   theme === 'light' ? 'text-gray-500' : 'text-slate-500'
-                }`}>Total: {historyData.length} Data</span>
+                }`}>
+                  {filteredHistory.length !== historyData.length 
+                    ? `Tampil: ${filteredHistory.length} dari ${historyData.length} Data`
+                    : `Total: ${historyData.length} Data`
+                  }
+                </span>
              </div>
              
              <div className="overflow-x-auto">
@@ -416,7 +634,7 @@ const UserDashboard = () => {
                <h3 className={`text-lg font-bold ${
                  theme === 'light' ? 'text-gray-900' : 'text-white'
                }`}>Profil Akun</h3>
-               <button onClick={() => {setShowProfileModal(false); setIsEditProfile(false)}} className={theme === 'light' ? 'text-gray-600 hover:text-gray-900' : 'text-slate-400 hover:text-white'}>
+               <button onClick={() => {setShowProfileModal(false); setIsEditProfile(false); setShowPassword(false);}} className={theme === 'light' ? 'text-gray-600 hover:text-gray-900' : 'text-slate-400 hover:text-white'}>
                  <X size={20} />
                </button>
              </div>
@@ -458,17 +676,31 @@ const UserDashboard = () => {
                   <label className={`block text-xs font-medium uppercase mb-1 ${
                     theme === 'light' ? 'text-gray-600' : 'text-slate-500'
                   }`}>Password</label>
-                  <input 
-                    type="password" 
-                    disabled={!isEditProfile}
-                    value={userProfile.password} // Password disensor
-                    readOnly
-                    className={`w-full border rounded-lg px-4 py-3 focus:outline-none ${
-                      theme === 'light'
-                        ? `bg-gray-50 ${isEditProfile ? 'border-blue-500' : 'border-gray-300'} text-gray-900`
-                        : `bg-slate-950 ${isEditProfile ? 'border-blue-500' : 'border-slate-800'} text-white`
-                    }`}
-                  />
+                  <div className="relative">
+                    <input 
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      disabled={!isEditProfile}
+                      value={userProfile.password}
+                      onChange={(e) => setUserProfile({...userProfile, password: e.target.value})}
+                      className={`w-full border rounded-lg px-4 py-3 pr-10 focus:outline-none ${
+                        theme === 'light'
+                          ? `bg-gray-50 ${isEditProfile ? 'border-blue-500' : 'border-gray-300'} text-gray-900`
+                          : `bg-slate-950 ${isEditProfile ? 'border-blue-500' : 'border-slate-800'} text-white`
+                      }`}
+                    />
+                    {isEditProfile && (
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className={`absolute right-3 top-1/2 -translate-y-1/2 z-10 ${
+                          theme === 'light' ? 'text-gray-400 hover:text-gray-600' : 'text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    )}
+                  </div>
                 </div>
                  <div>
                   <label className={`block text-xs font-medium uppercase mb-1 ${
@@ -490,14 +722,19 @@ const UserDashboard = () => {
                   {!isEditProfile ? (
                     <button 
                       onClick={() => setIsEditProfile(true)}
-                      className="w-full bg-white text-slate-900 font-bold py-3 rounded-lg hover:bg-slate-200 transition-colors"
+                      className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors"
                     >
                       Edit Profil
                     </button>
                   ) : (
                     <>
                       <button 
-                        onClick={() => setIsEditProfile(false)}
+                        onClick={() => {
+                          setIsEditProfile(false); 
+                          setShowPassword(false);
+                          // Reset password ke sensor jika dibatalkan
+                          setUserProfile({...userProfile, password: "****************"});
+                        }}
                         className={`flex-1 font-bold py-3 rounded-lg transition-colors ${
                           theme === 'light'
                             ? 'bg-gray-200 text-gray-900 hover:bg-gray-300'
@@ -507,10 +744,7 @@ const UserDashboard = () => {
                         Batal
                       </button>
                       <button 
-                        onClick={() => {
-                          setIsEditProfile(false);
-                          alert("Fitur simpan ke database akan segera hadir!");
-                        }}
+                        onClick={handleSaveProfile}
                         className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         Simpan
@@ -522,6 +756,272 @@ const UserDashboard = () => {
            </div>
         </div>
       )}
+
+      {/* --- MODAL FILTER WAKTU --- */}
+      {showFilter && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border ${
+            theme === 'light' 
+              ? 'bg-white border-gray-200' 
+              : 'bg-slate-900 border-slate-700'
+          }`}>
+            {/* Header */}
+            <div className={`px-6 py-4 flex justify-between items-center border-b ${
+              theme === 'light' 
+                ? 'bg-gray-100 border-gray-200' 
+                : 'bg-slate-800 border-slate-700'
+            }`}>
+              <div className="flex items-center gap-2">
+                <Filter size={20} className="text-blue-400" />
+                <h3 className={`text-lg font-bold ${
+                  theme === 'light' ? 'text-gray-900' : 'text-white'
+                }`}>Filter Waktu</h3>
+              </div>
+              <button 
+                onClick={() => setShowFilter(false)} 
+                className={theme === 'light' ? 'text-gray-600 hover:text-gray-900' : 'text-slate-400 hover:text-white'}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Filter Mode Tabs */}
+            <div className={`flex border-b ${
+              theme === 'light' ? 'border-gray-200' : 'border-slate-800'
+            }`}>
+              <button
+                onClick={() => setFilterMode('day')}
+                className={`flex-1 py-3 text-sm font-semibold transition-all ${
+                  filterMode === 'day'
+                    ? 'bg-blue-600 text-white'
+                    : theme === 'light'
+                      ? 'text-gray-600 hover:bg-gray-100'
+                      : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                Hari
+              </button>
+              <button
+                onClick={() => setFilterMode('month')}
+                className={`flex-1 py-3 text-sm font-semibold transition-all ${
+                  filterMode === 'month'
+                    ? 'bg-blue-600 text-white'
+                    : theme === 'light'
+                      ? 'text-gray-600 hover:bg-gray-100'
+                      : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                Bulan
+              </button>
+              <button
+                onClick={() => setFilterMode('year')}
+                className={`flex-1 py-3 text-sm font-semibold transition-all ${
+                  filterMode === 'year'
+                    ? 'bg-blue-600 text-white'
+                    : theme === 'light'
+                      ? 'text-gray-600 hover:bg-gray-100'
+                      : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                Tahun
+              </button>
+            </div>
+
+            {/* Filter Inputs */}
+            <div className="p-6 space-y-4">
+              {filterMode === 'day' && (
+                <>
+                  <div>
+                    <label className={`text-xs font-semibold mb-2 block uppercase ${
+                      theme === 'light' ? 'text-gray-600' : 'text-slate-400'
+                    }`}>Tanggal</label>
+                    <select
+                      value={filterDay}
+                      onChange={(e) => setFilterDay(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                        theme === 'light'
+                          ? 'bg-gray-50 border-gray-300 text-gray-900'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="">Pilih Tanggal</option>
+                      {[...Array(31)].map((_, i) => (
+                        <option key={i} value={i + 1}>{i + 1}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`text-xs font-semibold mb-2 block uppercase ${
+                      theme === 'light' ? 'text-gray-600' : 'text-slate-400'
+                    }`}>Bulan</label>
+                    <select
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                        theme === 'light'
+                          ? 'bg-gray-50 border-gray-300 text-gray-900'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="">Pilih Bulan</option>
+                      {['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].map((month, i) => (
+                        <option key={i} value={i + 1}>{month}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`text-xs font-semibold mb-2 block uppercase ${
+                      theme === 'light' ? 'text-gray-600' : 'text-slate-400'
+                    }`}>Tahun</label>
+                    <select
+                      value={filterYear}
+                      onChange={(e) => setFilterYear(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                        theme === 'light'
+                          ? 'bg-gray-50 border-gray-300 text-gray-900'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="">Pilih Tahun</option>
+                      {[2023, 2024, 2025, 2026].map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {filterMode === 'month' && (
+                <>
+                  <div>
+                    <label className={`text-xs font-semibold mb-2 block uppercase ${
+                      theme === 'light' ? 'text-gray-600' : 'text-slate-400'
+                    }`}>Bulan</label>
+                    <select
+                      value={filterMonth}
+                      onChange={(e) => setFilterMonth(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                        theme === 'light'
+                          ? 'bg-gray-50 border-gray-300 text-gray-900'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="">Pilih Bulan</option>
+                      {['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].map((month, i) => (
+                        <option key={i} value={i + 1}>{month}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={`text-xs font-semibold mb-2 block uppercase ${
+                      theme === 'light' ? 'text-gray-600' : 'text-slate-400'
+                    }`}>Tahun</label>
+                    <select
+                      value={filterYear}
+                      onChange={(e) => setFilterYear(e.target.value)}
+                      className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                        theme === 'light'
+                          ? 'bg-gray-50 border-gray-300 text-gray-900'
+                          : 'bg-slate-800 border-slate-700 text-slate-200'
+                      }`}
+                    >
+                      <option value="">Pilih Tahun</option>
+                      {[2023, 2024, 2025, 2026].map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {filterMode === 'year' && (
+                <div>
+                  <label className={`text-xs font-semibold mb-2 block uppercase ${
+                    theme === 'light' ? 'text-gray-600' : 'text-slate-400'
+                  }`}>Tahun</label>
+                  <select
+                    value={filterYear}
+                    onChange={(e) => setFilterYear(e.target.value)}
+                    className={`w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-blue-500 transition-colors ${
+                      theme === 'light'
+                        ? 'bg-gray-50 border-gray-300 text-gray-900'
+                        : 'bg-slate-800 border-slate-700 text-slate-200'
+                    }`}
+                  >
+                    <option value="">Pilih Tahun</option>
+                    {[2023, 2024, 2025, 2026].map((year) => (
+                      <option key={year} value={year}>{year}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setFilterDay('');
+                    setFilterMonth('');
+                    setFilterYear('');
+                  }}
+                  className={`flex-1 py-3 rounded-lg text-sm font-semibold transition-all ${
+                    theme === 'light'
+                      ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+                  }`}
+                >
+                  Reset Filter
+                </button>
+                <button
+                  onClick={() => setShowFilter(false)}
+                  className="flex-1 bg-blue-600 text-white py-3 rounded-lg text-sm font-semibold hover:bg-blue-700 transition-all"
+                >
+                  Terapkan Filter
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Container */}
+      <div className="fixed bottom-6 right-6 z-50 space-y-3 max-w-sm">
+        {notifications.map((notif) => (
+          <div
+            key={notif.id}
+            className={`rounded-lg shadow-2xl p-4 border-l-4 backdrop-blur-sm animate-slide-in ${
+              theme === 'light'
+                ? notif.type === 'success'
+                  ? 'bg-white border-green-500'
+                  : notif.type === 'error'
+                  ? 'bg-white border-red-500'
+                  : 'bg-white border-blue-500'
+                : notif.type === 'success'
+                  ? 'bg-slate-800/90 border-green-500'
+                  : notif.type === 'error'
+                  ? 'bg-slate-800/90 border-red-500'
+                  : 'bg-slate-800/90 border-blue-500'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`flex-shrink-0 w-2 h-2 rounded-full ${
+                notif.type === 'success' ? 'bg-green-500' : notif.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+              }`}></div>
+              <p className={`text-sm font-medium ${
+                theme === 'light' ? 'text-gray-800' : 'text-white'
+              }`}>{notif.message}</p>
+              <button
+                onClick={() => setNotifications(prev => prev.filter(n => n.id !== notif.id))}
+                className={`ml-auto flex-shrink-0 ${
+                  theme === 'light' ? 'text-gray-400 hover:text-gray-600' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
 
     </div>
   );
