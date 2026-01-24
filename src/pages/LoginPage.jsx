@@ -106,7 +106,7 @@ const LoginPage = () => {
         <h2 className={`text-2xl font-bold text-center mb-8 ${
           theme === 'light' ? 'text-gray-900' : 'text-white'
         }`}>
-          Trading System
+          Trading Dashboard
         </h2>
 
         {/* Pesan Error */}
@@ -165,7 +165,7 @@ const LoginPage = () => {
                 : 'bg-white text-slate-900 hover:bg-slate-200'
             }`}
           >
-            {loading ? <Loader2 className="animate-spin" /> : "Login Masuk"}
+            {loading ? <Loader2 className="animate-spin" /> : "Login"}
           </button>
         </form>
       </div>
