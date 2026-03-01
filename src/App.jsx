@@ -19,7 +19,7 @@ function App() {
         {/* Jika nyasar, balikkan ke Login */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
-    </Router>
+    </Router> 
   );
 }
 
